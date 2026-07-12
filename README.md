@@ -123,6 +123,17 @@ sudo chown -R $(id -u):$(id -g) /var/lib/crossdesk /var/log/crossdesk
 - **TURN / ICE**：WebRTC 的 ICE 候选地址必须是 IP，因此容器启动时会用 `getent` 把域名解析为 IP，注入 coturn 的 `external-ip`；中继流量仍走该公网 IP。
 - **客户端**：CrossDesk 客户端「自托管服务器配置 → 服务器地址」直接填该域名即可（客户端本就支持域名，会自动 DNS 解析连信令）。
 
+#### 动态公网 IP（DDNS）自动跟随
+
+如果你的公网 IP 是动态的（如电信家庭宽带 + DDNS 域名），无需在 IP 变化时手动重启。容器启动后会在后台运行一个看门狗：每隔一段时间（默认 120 秒，可用 `EXTERNAL_IP_WATCHDOG_INTERVAL` 调整）重新解析 `EXTERNAL_IP` 域名，一旦解析到的 IP 发生变化，就**就地改写 coturn 的 `external-ip` 并只重启 coturn**——信令服务（crossdesk-server）始终在前台运行、不中断，客户端只需在下次连接时拿到新的中继候选地址即可。
+
+前提与注意：
+
+- DDNS 必须能把域名及时刷新到最新公网 IP；看门狗以「域名解析结果」为唯一依据，域名没变就不会触发。
+- 仅在 `EXTERNAL_IP` 为域名时启用看门狗；填固定 IP 时不运行。
+- 看门狗触发后有约 2 秒的 coturn 重启间隙，期间新建的 TURN 中继连接会短暂失败并重试，已有连接不受影响。
+- 证书使用 `DNS:` SAN，与 IP 无关，IP 变化无需重新生成证书（但若你从 IP 改成域名，仍需先清 `certs` 卷再 `up`）。
+
 #### 免重建镜像部署（推荐先这样验证）
 
 仓库内置 `docker-compose.yml`，把修改后的 `docker/start.sh` 与 `docker/generate_certs.sh` 直接挂载进官方镜像的固定路径（`/start.sh`、`/docker/generate_certs.sh`），**无需重新构建镜像**即可使用域名能力：

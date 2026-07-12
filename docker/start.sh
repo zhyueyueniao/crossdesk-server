@@ -123,6 +123,33 @@ echo "using certificate: $CERT_FILE"
 # start coturn in the background
 turnserver -c "$CONF_FILE" &
 
+# --- Dynamic public IP watcher (DDNS) ---
+# When EXTERNAL_IP is a domain, re-resolve it on an interval. If the resolved
+# IP changes (e.g. the ISP reassigned the dynamic public IP), rewrite coturn's
+# external-ip and restart coturn so relay candidates always point at the
+# current IP. No manual container restart is required, and the signaling
+# server (crossdesk-server, the foreground PID 1) keeps running uninterrupted.
+if ! is_ipv4 "$EXTERNAL_IP"; then
+  (
+    set +e
+    WATCH_INTERVAL="${EXTERNAL_IP_WATCHDOG_INTERVAL:-120}"
+    LAST_IP="$EXTERNAL_IP_RESOLVED"
+    while true; do
+      sleep "$WATCH_INTERVAL"
+      CUR=$(getent ahostsv4 "$EXTERNAL_IP" 2>/dev/null | awk '{print $1; exit}')
+      if [ -n "$CUR" ] && [ "$CUR" != "$LAST_IP" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [ip-watchdog] EXTERNAL_IP domain '$EXTERNAL_IP' now resolves to $CUR (was $LAST_IP); updating coturn external-ip"
+        sed -i "s/^external-ip=.*/external-ip=$CUR/" "$CONF_FILE"
+        pkill -x turnserver
+        sleep 2
+        turnserver -c "$CONF_FILE" &
+        LAST_IP="$CUR"
+      fi
+    done
+  ) &
+  echo "Started dynamic-IP watcher (interval ${EXTERNAL_IP_WATCHDOG_INTERVAL:-120}s) for domain '$EXTERNAL_IP'"
+fi
+
 # start crossdesk-server as main foreground process
 echo "Starting crossdesk-server..."
 echo "Certificate directory: $CERT_DIR"

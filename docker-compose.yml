@@ -39,6 +39,9 @@ services:
       COTURN_PORT: "3478"
       MIN_PORT: "50000"
       MAX_PORT: "60000"
+      # 动态公网 IP（DDNS）看门狗轮询间隔（秒）。仅当 EXTERNAL_IP 为域名时启用：
+      # 域名解析到的 IP 变化时会就地重启 coturn 以更新 external-ip，信令服务不中断。
+      EXTERNAL_IP_WATCHDOG_INTERVAL: "120"
     ports:
       - "9099:9099/tcp"                  # 信令 / 管理 HTTPS
       - "3478:3478/tcp"
